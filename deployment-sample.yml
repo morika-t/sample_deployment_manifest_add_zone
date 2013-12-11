@@ -1,0 +1,478 @@
+---
+name: bluemix-cf-ha-150
+director_uuid: ea5e2eb5-1460-462f-a96e-775059a4a29c
+releases:
+- name: cf-ha-150
+  version: 150.1-dev
+compilation:
+  workers: 8
+  network: default
+  cloud_properties:
+    instance_type: bluemix.small
+update:
+  canaries: 1
+  canary_watch_time: 3000-90000
+  update_watch_time: 3000-90000
+  max_in_flight: 4
+  max_errors: 1
+networks:
+- cloud_properties: {}
+  name: floating
+  type: vip
+- cloud_properties:
+    security_groups:
+    - default
+  dns:
+  - 10.0.0.135
+  name: default
+  type: dynamic
+
+resource_pools:
+- name: coreNode
+  network: default
+  size: 7
+  stemcell:
+    name: bosh-openstack-kvm-ubuntu
+    version: 1504
+  cloud_properties:
+    instance_type: bluemix.small
+- name: router
+  network: default
+  size: 1
+  stemcell:
+    name: bosh-openstack-kvm-ubuntu
+    version: 1504
+  cloud_properties:
+    instance_type: bluemix.small
+
+- name: dea_pool_1
+  network: default
+  size: 2
+  stemcell:
+    name: bosh-openstack-kvm-ubuntu
+    version: 1504
+  cloud_properties:
+    instance_type: bluemix.small
+    availability_zone: az1
+- name: dea_pool_2
+  network: default
+  size: 2
+  stemcell:
+    name: bosh-openstack-kvm-ubuntu
+    version: 1504
+  cloud_properties:
+    instance_type: bluemix.small
+    availability_zone: az2
+
+jobs:
+- name: debian_nfs_server
+  release: cf-ha-150
+  template: debian_nfs_server
+  instances: 1
+  resource_pool: coreNode
+  persistent_disk: 20000
+  networks:
+  - name: default
+    default:
+    - dns
+    - gateway
+- name: nats
+  release: cf-ha-150
+  template: nats
+  instances: 1
+  resource_pool: coreNode
+  networks:
+  - name: default
+    default:
+    - dns
+    - gateway
+- name: ccdb_ng
+  release: cf-ha-150
+  template: postgres
+  instances: 1
+  resource_pool: coreNode
+  persistent_disk: 20480
+  networks:
+  - name: default
+    default:
+    - dns
+    - gateway
+  properties:
+    db: ccdb_ng
+- name: uaadb
+  db_scheme: postgresql
+  release: cf-ha-150
+  template: postgres
+  instances: 1
+  resource_pool: coreNode
+  persistent_disk: 20480
+  networks:
+  - name: default
+    default:
+    - dns
+    - gateway
+  properties:
+    db: uaadb
+- name: uaa
+  release: cf-ha-150
+  template: uaa
+  instances: 1
+  resource_pool: coreNode
+  networks:
+  - name: default
+- name: cloud_controller_ng
+  release: cf-ha-150
+  template: cloud_controller_ng
+  instances: 1
+  resource_pool: coreNode
+  networks:
+  - name: default
+- name: router
+  release: cf-ha-150
+  template: gorouter
+  instances: 1
+  resource_pool: router
+  networks:
+  - name: floating
+    static_ips:
+    - 9.181.27.85
+  - name: default
+    default:
+    - dns
+    - gateway
+
+- name: dea_job_1
+  release: cf-ha-150
+  template: dea_next
+  instances: 2
+  resource_pool: dea_pool_1
+  update:
+    max_in_flight: 8
+  networks:
+  - name: default
+  properties:
+    dea_next:
+      zone: az1
+      stacks:
+      - lucid64
+- name: dea_job_2
+  release: cf-ha-150
+  template: dea_next
+  instances: 2
+  resource_pool: dea_pool_2
+  update:
+    max_in_flight: 8
+  networks:
+  - name: default
+  properties:
+    dea_next:
+      zone: az2
+      stacks:
+      - lucid64
+
+- name: health_manager_next
+  release: cf-ha-150
+  template: health_manager_next
+  instances: 1
+  resource_pool: coreNode
+  networks:
+  - name: default
+    default:
+    - dns
+    - gateway
+properties:
+  domain: cf-ha.bluemix.cdl.ibm.com
+  system_domain_organization: org
+  system_domain: cf-ha.bluemix.cdl.ibm.com
+  app_domains:
+  - cf-ha.bluemix.cdl.ibm.com
+  networks:
+    apps: default
+    management: default
+  collector:
+    deployment_name: collector-deployment
+  login:
+    url: http://uaa.cf-ha.bluemix.cdl.ibm.com
+  nats:
+    user: nats
+    password: time4fun
+    address: 0.nats.default.bluemix-cf-ha-150.microbosh
+    port: 4222
+    authorization_timeout: 10
+    machines:
+    - 0.nats.default.bluemix-cf-ha-150.microbosh
+  ccdb:
+    address: 0.ccdb-ng.default.bluemix-cf-ha-150.microbosh
+    port: 12345
+    roles:
+    - tag: admin
+      name: admin
+      password: time4fun
+    databases:
+    - tag: cc
+      name: foobar
+  service_broker:
+    external_uri: 0.service-broker.default.bluemix-cf-ha-150.microbosh
+    ip_route: localhost
+    index: 0
+    token: serviceToken
+    logging:
+      level: debug
+    mbus: nats://0.nats.default.bluemix-cf-ha-150.microbosh:4222
+    cc_api_version: v2
+  ccdb_ng:
+    address: 0.ccdb-ng.default.bluemix-cf-ha-150.microbosh
+    port: 5524
+    pool_size: 10
+    roles:
+    - tag: admin
+      name: ccadmin
+      password: time4fun
+    databases:
+    - tag: cc
+      name: appcloud
+      citext: true
+  health_manager_ccng:
+    shadow_mode: disable
+    cc_partition: ng
+  uaadb:
+    address: 0.uaadb.default.bluemix-cf-ha-150.microbosh
+    databases:
+    - citext: true
+      name: uaadb
+      tag: uaa
+    db_scheme: postgresql
+    port: 5524
+    roles:
+    - name: uaaadmin
+      password: time4fun
+      tag: admin
+  cc:
+    srv_api_uri: http://api.cf-ha.bluemix.cdl.ibm.com
+  ccng:
+    srv_api_uri: http://api.cf-ha.bluemix.cdl.ibm.com
+    external_host: api
+    logging_level: debug
+    bulk_api_password: time4fun
+    uaa_resource_id: cloud_controller
+    staging_upload_user: time4fun
+    staging_upload_password: time4fun
+    admin_bootstrap_email: admin@cn.ibm.com
+    db_encryption_key: time4fun
+    quota_definitions:
+      free:
+        non_basic_services_allowed: false
+        total_services: 21
+        memory_limit: 8192
+  vcap_redis:
+    address: 0.vcap-redis.default.bluemix-cf-ha-150.microbosh
+    port: 5454
+    password: time4fun
+    maxmemory: 2000000000
+  router:
+    status:
+      port: 8080
+      user: 0dfg0dfg0dfg
+      password: time4fun
+  dashboard:
+    uaa:
+      client_id: dashboard
+      client_secret: 0dfgmsfgngrioger
+    users:
+    - - dash-user
+      - dash-password
+  dea:
+    max_memory: 8192
+  dea_next:
+    directory_server_protocol: http
+    memory_mb: 8192
+    memory_overcommit_factor: 4
+    disk_mb: 52224
+    disk_overcommit_factor: 4
+    num_instances: 150
+  nfs_server:
+    address: 0.debian-nfs-server.default.bluemix-cf-ha-150.microbosh
+    network: ! '*.bluemix-cf-ha-150.microbosh'
+  service_plans:
+    mysql:
+      '100':
+        description: Shared server, shared VM, 1MB memory, 10MB storage, 10 connections
+        free: true
+        job_management:
+          high_water: 900
+          low_water: 100
+        configuration:
+          capacity: 500
+          max_db_size: 10
+          key_buffer: 512
+          innodb_buffer_pool_size: 512
+          max_allowed_packet: 16
+          thread_cache_size: 128
+          query_cache_size: 128
+          max_long_query: 3
+          max_long_tx: 30
+          max_clients: 10
+          max_connections: 1000
+          table_open_cache: 2000
+          innodb_tables_per_database: 50
+          connection_pool_size:
+            min: 5
+            max: 10
+          backup:
+            enable: true
+          lifecycle:
+            enable: true
+            serialization: enable
+            snapshot:
+              quota: 1
+          warden:
+            enable: false
+    mongodb:
+      '100':
+        description: Dedicated server, shared VM, 250MB storage, 10 connections
+        free: true
+        job_management:
+          high_water: 230
+          low_water: 20
+        configuration:
+          capacity: 125
+          max_clients: 10
+          quota_files: 4
+          quota_data_size: 240
+          enable_journaling: true
+          backup:
+            enable: true
+          lifecycle:
+            enable: true
+            serialization: enable
+            snapshot:
+              quota: 1
+  serialization_data_server:
+    upload_token: asdf9asd9asd9ad9ads9ads
+    use_nginx: true
+    upload_timeout: 10
+    port: 8080
+    upload_file_expire_time: 600
+    purge_expired_interval: 30
+  service_backup:
+    nfs_server:
+      address: 0.services-nfs.default.bluemix-cf-ha-150.microbosh
+      export_dir: /var/vcap/store/shared
+  service_migration:
+    nfs_server:
+      address: 0.services-nfs.default.bluemix-cf-ha-150.microbosh
+      export_dir: /var/vcap/store/shared
+  service_backup_manager:
+    enable: true
+  service_snapshot_manager:
+    enable: true
+  service_job_manager: 
+  mysql_gateway:
+    token: serviceToken
+    default_plan: '100'
+    supported_versions:
+    - '5.5'
+    version_aliases:
+      current: '5.5'
+    cc_api_version: v2
+  mysql_node:
+    password: time4fun
+    supported_versions:
+    - '5.5'
+    default_version: '5.5'
+    max_tmp: 1024
+  mongodb_gateway:
+    token: serviceToken
+    default_plan: '100'
+    supported_versions:
+    - '2.2'
+    version_aliases:
+      current: '2.2'
+    cc_api_version: v2
+    handle_fetch_interval: 60
+  mongodb_node:
+    supported_versions:
+    - '2.2'
+    default_version: '2.2'
+    max_tmp: 900
+  syslog_aggregator:
+    address: syslog_aggregator
+    port: 54321
+  uaa:
+    catalina_opts: -Xmx768m -XX:MaxPermSize=256m
+    url: http://uaa.cf-ha.bluemix.cdl.ibm.com
+    resource_id: account_manager
+    client_secret: somesecret
+    token_secret: tokensecret
+    cc:
+      token_secret: asdfasdfasdfadfs
+      client_secret: asdfasdfasdffth
+    admin:
+      client_secret: erthth45ydbgaerg
+    login:
+      client_secret: 457dgnsrgw457sdg
+    batch:
+      username: sdfgjwetrysdgf
+      password: time4fun
+    client:
+      override: true
+      autoapprove:
+      - vmc
+      - my
+      - portal
+      - micro
+      - support-signon
+      - login
+      - cf
+    clients:
+      jtace:
+        scope: cloud_controller.read,cloud_controller.write,cloud_controller.admin,openid,password.write,scim.read,scim.write
+        secret: foobar
+        id: jtace
+        authorized-grant-types: authorization_code,refresh_token,client_credentials,password
+        authorities: cloud_controller.read,cloud_controller.write,cloud_controller.admin,openid,password.write,scim.read,scim.write
+        autoapprove: true
+      ace:
+        scope: cloud_controller.read,cloud_controller.write,cloud_controller.admin,openid,password.write,scim.read,scim.write
+        secret: foobar
+        id: ace
+        authorized-grant-types: authorization_code,refresh_token,client_credentials,password
+        authorities: cloud_controller.read,cloud_controller.write,cloud_controller.admin,openid,password.write,scim.read,scim.write
+        autoapprove: true
+      dashboard:
+        secret: w4ydbsbJUetdrgdsg
+        scope: openid,dashboard.user
+        authorities: uaa.admin,uaa.resource,tokens.read,scim.read,scim.write
+        authorized-grant-types: client_credentials,authorization_code,refresh_token
+      portal:
+        override: true
+        id: portal
+        scope: scim.write,scim.read,openid,cloud_controller.read,cloud_controller.write
+        authorities: scim.write,scim.read,openid,cloud_controller.read,cloud_controller.write,password.write,uaa.admin
+        secret: portalsecret
+        authorized-grant-types: authorization_code,client_credentials,password,implicit
+        access-token-validity: 1209600
+        refresh-token-validity: 1209600
+      support-services:
+        scope: scim.write,scim.read,openid,cloud_controller.read,cloud_controller.write
+        secret: ssosecretsso
+        id: support-services
+        authorized-grant-types: authorization_code,client_credentials
+        redirect-uri: http://support-signon.cf-ha.bluemix.cdl.ibm.com
+        authorities: portal.users.read
+        access-token-validity: 1209600
+        refresh-token-validity: 1209600
+      vmc:
+        override: true
+        authorized-grant-types: implicit
+        authorities: uaa.none
+        scope: cloud_controller.read,cloud_controller.write,openid,password.write,cloud_controller.admin,scim.read,scim.write
+      cf:
+        override: true
+        authorized-grant-types: implicit,password,authorization_code,refresh_token
+        authorities: uaa.none
+        scope: cloud_controller.read,cloud_controller.write,openid,password.write,cloud_controller.admin,scim.read,scim.write
+    scim:
+      users:
+      - admin@cn.ibm.com|time4fun|scim.write,scim.read,openid,cloud_controller.admin
+      - dash-user|dash-password|openid,dashboard.user
